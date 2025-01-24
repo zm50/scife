@@ -12,14 +12,14 @@ from utils import (
     delete_content_by_uid
 )
 
-# 设置页面布局为宽屏模式
-st.set_page_config(
-    page_title="思维导图",
-    page_icon="",
-    layout="wide"  # 使用宽屏模式
-)
+# # 设置页面布局为宽屏模式
+# st.set_page_config(
+#     page_title="思维导图",
+#     page_icon="",
+#     layout="wide"  # 使用宽屏模式
+# )
 
-st.title('思维导图')
+st.title('🤯思维导图')
 
 def create_mindmap(data):
     """创建思维导图"""
@@ -62,6 +62,7 @@ def create_mindmap(data):
     )
     return tree
 
+
 def gen_mindmap(content, document):
     with st.spinner('正在生成思维导图...'):
         mindmap_data = generate_mindmap_data(content['text'])
@@ -83,7 +84,10 @@ def main():
     if not st.session_state.files:
         st.write('### 还没上传文档哦')
         return
+    
+    st.write('### 正在快马加鞭实现中...')
 
+    return
     # 操作区域（上方）
     
     selected_doc = st.selectbox(

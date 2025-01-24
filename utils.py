@@ -9,23 +9,64 @@ import string
 import uuid
 from typing import List, Tuple
 
-import redis
+# import redis
 import requests
 import streamlit as st
 from openai import OpenAI
 from pypdf import PdfReader
+from consts import *
 
-# init client
-client = OpenAI(
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
-)
-model_name = 'qwen-max'
 # pool = redis.ConnectionPool(host='localhost', port=6379, decode_responses=True)
 # rdb = redis.Redis(connection_pool=pool)
 cache = {}
 
-server_domain = 'http://localhost:8000'
+def chat_completion(prompt: str):
+    data = {
+        'prompt': prompt
+    }
+    resp = requests.post(chat_completion_url, cookies=get_cookies(), json=data, stream=True)
+    if resp.status_code == 200:
+        st.error('未知错误')
+        return None
+    
+        # Ensure the response is successful
+    if resp.status_code != 200:
+        return
+    
+    # Initialize variables to store the current event data
+    event_data = ""
+    event_id = None
+    event_type = "message"  # Default event type
+    
+    # Iterate over the response content line by line
+    for line in resp.iter_lines():
+        if line:
+            # Decode the line from bytes to string
+            decoded_line = line.decode('utf-8')
+            
+            # Check if the line is a data line
+            if decoded_line.startswith("data:"):
+                # Extract the data part
+                data = decoded_line[5:].strip()
+                event_data += data + "\n"
+            elif decoded_line.startswith("id:"):
+                # Extract the event ID
+                event_id = decoded_line[3:].strip()
+            elif decoded_line.startswith("event:"):
+                # Extract the event type
+                event_type = decoded_line[6:].strip()
+            elif decoded_line == "":
+                # End of an event
+                print(f"Received event: id={event_id}, type={event_type}, data={event_data.strip()}")
+
+                with st.chat_message("assistant"):
+                    st.markdown(event_data)
+                    # st.session_state.steps[str(len(msgs.messages) - 1)] = response["intermediate_steps"]
+
+                # Reset the event data
+                event_data = ""
+                event_id = None
+                event_type = "message"
 
 # def init_database(db_name: str):
 #     conn = sqlite3.connect(db_name)
@@ -74,8 +115,7 @@ def get_user_files() -> list:
     # cursor.execute("SELECT * FROM files WHERE uuid = ?", (uuid_value,))
     # rows = cursor.fetchall()
     # conn.close()
-    url = f'{server_domain}/api/file/list'
-    resp = requests.get(url, cookies=get_cookies())
+    resp = requests.get(file_list_url, cookies=get_cookies())
     resp_dict = resp.json()
     data = resp_dict['data']
     fs = data['files']
@@ -99,35 +139,30 @@ def save_token(user_id: str) -> str:
 
 
 # 若成功,返回true,uuid,'',依次为result,token,error
-def login(username: str, password: str, db_name='./database.sqlite') -> \
-        Tuple[bool, str, str]:
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    # 校验用户名是否存在
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
-    conn.close()
-    if (not user) or hashlib.sha256(password.encode('utf-8')).hexdigest() != user[2]:
-        return False, '', '账号密码错误'
-    return True, save_token(user[0]), ''
+def login(username: str, password: str) -> Tuple[str, str]:
+    # todo
+    data = {
+        'name': username,
+        "pass": password,
+    }
+    resp = requests.post(url=login_url, cookies=get_cookies(), json=data)
+    if resp.status_code != 200:
+        return '', '账号密码错误'
+    resp_dict = resp.json()
+    data = resp_dict['data']
+    return data['token'], ''
 
-    # 若成功,返回true,uuid,'',依次为result,token,error
 
+def register(username: str, password: str) -> str:
+    data = {
+        'name': username,
+        "pass": password,
+    }
+    resp = requests.post(url=register_url, json=data)
+    if resp.status_code != 200:
+        return '用户名已存在'
 
-def register(username: str, password: str, db_name='./database.sqlite') -> Tuple[bool, str, str]:
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    if cursor.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone():
-        conn.close()
-        return False, '', '用户名已存在'
-    uid = gen_uuid()
-    cursor.execute(f"""
-           INSERT INTO users (uuid, username, password)
-           VALUES (?, ?, ?)
-           """, (uid, username, hashlib.sha256(password.encode('utf-8')).hexdigest()))
-    conn.commit()
-    conn.close()
-    return True, save_token(uid), ''
+    return ''
 
 
 def is_token_expired(token):
@@ -149,11 +184,14 @@ def is_token_expired(token):
         return False  # 如果 TTL 大于 0，表示 Token 尚未过期
 
 
-def print_contents(content):
-    for key, value in content.items():
-        st.write('### ' + key + '\n')
-        for i in value:
-            st.write('- ' + i + '\n')
+def print_items(items):
+    for item in items:
+        if 'title' not in item or 'texts' not in item:
+            continue
+        st.write('### ' + item['title'] + '\n')
+        for i in item['texts']:
+            if i:
+                st.write('- ' + i + '\n')
 
 
 def save_content_to_database(uid: str,
@@ -417,7 +455,21 @@ class LoggerManager:
         return self.logger
 
 
-def text_extraction(file_path: str):
+def text_extraction(fid):
+    data = {
+        'fid': fid
+    }
+
+    resp = requests.post(url=file_text_extract_url, json=data)
+    if resp.status_code != 200:
+        return None
+    resp_dict = resp.json()
+    data = resp_dict['data']
+
+    if 'page_texts' not in data:
+        return None
+    return data['page_texts']
+
     res = extract_files(file_path)
     if res['result'] == 1:
         file_content = '以下为一篇论文的原文:\n' + res['text']
@@ -449,27 +501,43 @@ def text_extraction(file_path: str):
     # 这边返回的就是json对象了
     return True, json.loads(completion.choices[0].message.content)
 
-def file_summary(file_path: str)->Tuple[bool,str]:
-    res = extract_files(file_path)
-    if res['result'] == 1:
-        content = res['text']
-    else:
-        return False, ''
- 
-    system_prompt = """你是一个文书助手。你的客户会交给你一篇文章，你需要用尽可能简洁的语言，总结这篇文章的内容。不得使用 markdown 记号。"""
+def text_extraction_format(fid):
+    data = {
+        'fid': fid
+    }
 
-    llm = ChatTongyi(model_name="qwen-max", streaming=True)
-    
-    prompt = ChatPromptTemplate.from_messages(
-            [("system", system_prompt),
-             ("user", content)
-            ])
-    chain = prompt | llm | StrOutputParser()
-    summary = chain.invoke({})
+    resp = requests.post(url=chat_text_extract_url, cookies=get_cookies(), json=data)
+    if resp.status_code != 200:
+        return None
+    resp_dict = resp.json()
+    data = resp_dict['data']
+
+    if 'items' not in data:
+        return None
+
+    return data['items']
+
+
+def file_summary(fid):
+    data = {
+        'fid': fid
+    }
+
+    resp = requests.post(url=chat_file_summary_url, cookies=get_cookies(), json=data)
+    if resp.status_code != 200:
+        return None
+
+    resp_dict = resp.json()
+    data = resp_dict['data']
+
+    if 'summary' not in data:
+        return None
+
+    summary = data['summary']
+
     st.markdown("### 总结如下：")
     st.text(summary)
     return True, summary
-    
 
 
 def delete_content_by_uid(uid: str, content_type: str, db_name='./database.sqlite'):
@@ -698,26 +766,3 @@ def reduce_similarity(text: str,temperature: float,model_name: str,optimization_
 """
     response = llm.invoke(prompt,temperature=temperature)
     return response.content
-
-def save_api_key(uuid: str, api_key: str, db_name='./database.sqlite'):
-    """保存用户的 API key"""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    
-    # 更新用户的 API key
-    cursor.execute("""
-        UPDATE users SET api_key = ? WHERE uuid = ?
-    """, (api_key, uuid))
-    
-    conn.commit()
-    conn.close()
-
-def get_api_key(uuid: str, db_name='./database.sqlite') -> str:
-    """获取用户的 API key"""
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT api_key FROM users WHERE uuid = ?", (uuid,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result and result[0] else ''

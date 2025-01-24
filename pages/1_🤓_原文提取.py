@@ -2,22 +2,32 @@ import json
 
 import streamlit as st
 
-# from utils import get_content_by_uid, text_extraction, \
-#     save_content_to_database, print_contents, is_token_expired
+from utils import is_token_expired, text_extraction, text_extraction_format, print_items
 
+st.title('🤓原文提取')
 
 def main():
-    tabs = st.tabs([item['file_name']
-                    for item in st.session_state.files])
-    for index, item in enumerate(st.session_state.files):
+    tabs = None
+    fns = [item['file_name'] for item in st.session_state['files']]
+    if len(fns) > 0:
+        tabs = st.tabs(fns)
+
+    for index, item in enumerate(st.session_state['files']):
         with tabs[index]:
             st.write('## ' + item['file_name'] + '\n')
+
+            with st.spinner('解析文档中 ...'):
+                items = text_extraction_format(item['id'])
+                if not items:
+                    st.write('### 大模型貌似开小差了～重新试试吧！\n')
+                else:
+                    print_items(items)
             # content = get_content_by_uid(item['uid'], 'file_extraction')
             # if content is not None:
             #     print_contents(json.loads(content))
             # else:
             #     with st.spinner('解析文档中 ...'):
-            #         result, content = text_extraction(item['file_path'])
+                    # result, content = text_extraction(item['file_path'])
             #         if not result:
             #             st.write('### 大模型貌似开小差了～重新试试吧！\n')
             #         else:
@@ -29,15 +39,10 @@ def main():
             #                                      content_type='file_extraction')
 
 
-st.title('🤓原文提取')
-
 if "files" not in st.session_state:
-    st.session_state.files = []
+    st.session_state['files'] = []
 
-# if (not st.session_state['token']) or is_token_expired(st.session_state['token']):
-if False:
+if (not st.session_state['token']) or is_token_expired(st.session_state['token']):
     st.error('还没登录哦')
-#elif not st.session_state.files:
-#    st.write('### 还没上传文档哦')
 else:
     main()

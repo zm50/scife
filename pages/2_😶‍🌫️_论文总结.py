@@ -27,21 +27,21 @@ def main():
         for index, item in enumerate(st.session_state.files):
             with tabs[index]:
                 st.write('## ' + item['file_name'] + '\n')
-                content = get_content_by_uid(item['uid'], 'file_summary')
-                if content is not None:
-                    st.markdown("### 总结如下：")
-                    st.write(content) 
-                else:
-                    with st.spinner('解析文档中 ...'):
-                        result, summary = file_summary(item['file_path'])
-                        if not result:
-                            st.write('### 大模型貌似开小差了～重新试试吧！\n')
-                        else:
-                            # 保存到数据库
-                            save_content_to_database(uid=st.session_state['files'][index]['uid'],
-                                                 file_path=st.session_state['files'][index]['file_path'],
-                                                 content=summary,
-                                                 content_type='file_summary')
+                # content = get_content_by_uid(item['uid'], 'file_summary')
+                # if content is not None:
+                #     st.markdown("### 总结如下：")
+                #     st.write(content) 
+                # else:
+                with st.spinner('解析文档中 ...'):
+                    summary = file_summary(item['id'])
+                    if not summary:
+                        st.write('### 大模型貌似开小差了～重新试试吧！\n')
+                    # else:
+                    #     # 保存到数据库
+                    #     save_content_to_database(uid=st.session_state['files'][index]['uid'],
+                    #                             file_path=st.session_state['files'][index]['file_path'],
+                    #                             content=summary,
+                    #                             content_type='file_summary')
 
 
 
